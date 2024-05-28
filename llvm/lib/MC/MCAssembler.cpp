@@ -13,6 +13,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/MC/AuxDataSchema.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCAsmLayout.h"
@@ -733,6 +734,271 @@ static void writeFragment(raw_ostream &OS, const MCAssembler &Asm,
 
   assert(OS.tell() - Start == FragmentSize &&
          "The stream should advance by fragment size");
+}
+
+
+// 5c4lar
+std::string
+MCAssembler::getGtirb(const MCAsmLayout &Layout,
+                      std::vector<const MCSection *> &SectionTable) const {
+  gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::FunctionNames>();
+  gtirb::AuxDataContainer::registerAuxDataType<
+      gtirb::schema::FunctionEntries>();
+  gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::FunctionBlocks>();
+  gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::SectionIndex>();
+  gtirb::AuxDataContainer::registerAuxDataType<
+      gtirb::schema::SymbolicExpressionInfo>();
+  gtirb::Context Ctx;
+  auto *Ir = gtirb::IR::Create(Ctx);
+  auto *MAI = getContext().getAsmInfo();
+  auto &GtirbInfo = MAI->GtirbInfo;
+  auto &ModuleName = GtirbInfo.ModuleName;
+  auto *M = Ir->addModule(Ctx, ModuleName);
+  Ir->addModule(M);
+  gtirb::schema::FunctionNames::Type FunctionNames;
+  gtirb::schema::FunctionEntries::Type FunctionEntries;
+  gtirb::schema::FunctionBlocks::Type FunctionBlocks;
+  gtirb::schema::SectionIndex::Type SectionIndex;
+  gtirb::schema::SymbolicExpressionInfo::Type SymbolicExpressionInfo;
+  std::map<const MCSection *, gtirb::Section *> SectionMap;
+  std::map<const MCSymbol *, gtirb::Symbol *> SymbolMap;
+  //  for (auto &Section : SectionTable) {
+  //    auto *S = M->addSection(Ctx, Section->getName().str());
+  //    SectionMap[Section] = S;
+  //  }
+  auto SetSymbolReferent = [&](const MCSymbol* Symbol) {
+    gtirb::Symbol* GtirbSym = nullptr;
+    if (0 < SymbolMap.count(Symbol)) {
+      GtirbSym = SymbolMap[Symbol];
+      if (GtirbSym->hasReferent()) {
+        DEBUG_WITH_TYPE("gtirb", dbgs() << "Symbol " << Symbol->getName()
+                                        << " has referent\n";);
+        return GtirbSym;
+      }
+    }
+    if (!Symbol->isInSection()) {
+      if (nullptr == GtirbSym) {
+        GtirbSym = SymbolMap[Symbol] = M->addSymbol(Ctx, Symbol->getName().str());
+      }
+      DEBUG_WITH_TYPE("gtirb", dbgs() << "Symbol " << Symbol->getName()
+                                      << " is not in a section\n";);
+      auto *ProxyBlock = M->addProxyBlock(Ctx);
+      GtirbSym->setReferent(ProxyBlock);
+      return GtirbSym;
+    }
+    auto &Section = Symbol->getSection();
+    auto *GtirbSection = SectionMap[&Section];
+    auto *Fragment = Symbol->getFragment();
+    uint64_t FragmentOffset = Layout.getFragmentOffset(Fragment);
+    uint64_t SymbolOffset = Symbol->getOffset();
+    auto &BI = *GtirbSection->byte_intervals_begin();
+    auto Blocks = BI.findBlocksAtOffset(FragmentOffset + SymbolOffset);
+    if (!Blocks.empty() && !M->findSymbols(Blocks.front()).empty()) {
+      GtirbSym = SymbolMap[Symbol] = &M->findSymbols(Blocks.front()).front();
+    } else {
+      GtirbSym = SymbolMap[Symbol] = M->addSymbol(Ctx, Symbol->getName().str());
+    }
+
+    DEBUG_WITH_TYPE("gtirb", dbgs() << "Symbol " << Symbol->getName()
+                                    << " has no referent\n";);
+    if (!Blocks.empty()) {
+      auto &Block = Blocks.front();
+      if (gtirb::isa<gtirb::DataBlock>(&Block)) {
+        GtirbSym->setReferent(gtirb::dyn_cast<gtirb::DataBlock>(&Block));
+      } else if (gtirb::isa<gtirb::CodeBlock>(&Block)) {
+        GtirbSym->setReferent(gtirb::dyn_cast<gtirb::CodeBlock>(&Block));
+      }
+    } else {
+      auto *GtirbDataBlock = gtirb::DataBlock::Create(Ctx);
+      BI.addBlock(FragmentOffset + SymbolOffset, GtirbDataBlock);
+      GtirbSym->setReferent(GtirbDataBlock);
+    }
+    return GtirbSym;
+  };
+
+  // Add sections and Section ByteIntervals
+  for (uint64_t Idx = 0; Idx < SectionTable.size(); Idx++) {
+    auto *Section = SectionTable[Idx];
+    if (Section->getName().str() == ".gtirb") {
+      continue;
+    }
+    auto *S = M->addSection(Ctx, Section->getName().str());
+    SectionIndex[Idx + 1] = S->getUUID();
+    SectionMap[Section] = S;
+    auto SectionSize = Layout.getSectionAddressSize(Section);
+    S->addByteInterval(Ctx, SectionSize, 0);
+  }
+  // Add Functions
+  for (auto &Function : GtirbInfo.Functions) {
+    gtirb::Symbol *FunctionNameSymbol;
+    if (SymbolMap.count(Function.Sym)) {
+      FunctionNameSymbol = SymbolMap[Function.Sym];
+    } else {
+      FunctionNameSymbol = SymbolMap[Function.Sym] =
+          M->addSymbol(Ctx, Function.Sym->getName().str());
+    }
+    auto *S = SectionMap[&Function.Sym->getSection()];
+    auto &BI = *S->byte_intervals_begin();
+    auto *FunctionNode = gtirb::Node::Create(Ctx);
+    auto FunctionUUID = FunctionNode->getUUID();
+    gtirb::schema::FunctionBlocks::Type::mapped_type BlocksUUID;
+    gtirb::schema::FunctionEntries::Type::mapped_type EntryBlocksUUID;
+    for (auto &Block : Function.BasicBlocks) {
+      auto BBBeginOffset = Layout.getSymbolOffset(*Block.Begin);
+      auto BBEndOffset = Layout.getSymbolOffset(*Block.End);
+      auto *GtirbCodeBlock =
+          gtirb::CodeBlock::Create(Ctx, BBEndOffset - BBBeginOffset);
+      BI.addBlock(BBBeginOffset, GtirbCodeBlock);
+      BlocksUUID.emplace(GtirbCodeBlock->getUUID());
+      if (Block.IsEntry) {
+        EntryBlocksUUID.emplace(GtirbCodeBlock->getUUID());
+        FunctionNameSymbol->setReferent(GtirbCodeBlock);
+      }
+    }
+    FunctionNames.emplace(FunctionUUID, FunctionNameSymbol->getUUID());
+    FunctionBlocks.emplace(FunctionUUID, BlocksUUID);
+    FunctionEntries.emplace(FunctionUUID, EntryBlocksUUID);
+  }
+  // Add Variables
+  for (auto &Var : GtirbInfo.Variables) {
+    if (!Var.Sym->isDefined())
+      continue;
+    auto VarOffset = Layout.getSymbolOffset(*Var.Sym);
+    auto *GtirbDataBlock = gtirb::DataBlock::Create(Ctx, Var.Size);
+
+    auto *S = SectionMap[&Var.Sym->getSection()];
+    auto &BI = *S->byte_intervals_begin();
+    BI.addBlock(VarOffset, GtirbDataBlock);
+    gtirb::Symbol *GtirbSym;
+    if (SymbolMap.count(Var.Sym)) {
+      GtirbSym = SymbolMap[Var.Sym];
+    } else {
+      GtirbSym = SymbolMap[Var.Sym] =
+          M->addSymbol(Ctx, GtirbDataBlock, Var.Sym->getName().str());
+    }
+    // Need to be handled more carefully.
+    GtirbSym->setReferent(GtirbDataBlock);
+  }
+  // Handle Fragments and Fixups
+  for (uint64_t Idx = 0; Idx < SectionTable.size(); Idx++) {
+    auto *Section = SectionTable[Idx];
+    if (Section->getName().str() == ".gtirb") {
+      continue;
+    }
+    auto *S = SectionMap[Section];
+    auto *BI = &*S->byte_intervals_begin();
+    ArrayRef<MCFixup> Fixups;
+
+    for (auto &Fragment : *Section) {
+      switch (Fragment.getKind()) {
+      default:
+        continue;
+      case MCFragment::FT_Data: {
+        auto &DF = cast<MCDataFragment>(Fragment);
+        Fixups = DF.getFixups();
+        break;
+      }
+      case MCFragment::FT_Relaxable: {
+        auto &RF = cast<MCRelaxableFragment>(Fragment);
+        Fixups = RF.getFixups();
+        break;
+      }
+      case MCFragment::FT_CVDefRange: {
+        auto &CF = cast<MCCVDefRangeFragment>(Fragment);
+        Fixups = CF.getFixups();
+        break;
+      }
+      case MCFragment::FT_Dwarf: {
+        auto &DF = cast<MCDwarfLineAddrFragment>(Fragment);
+        Fixups = DF.getFixups();
+        break;
+      }
+      case MCFragment::FT_DwarfFrame: {
+        auto &DF = cast<MCDwarfCallFrameFragment>(Fragment);
+        Fixups = DF.getFixups();
+        break;
+      }
+      case MCFragment::FT_LEB: {
+        auto &LF = cast<MCLEBFragment>(Fragment);
+        Fixups = LF.getFixups();
+        break;
+      }
+      case MCFragment::FT_PseudoProbe: {
+        auto &PF = cast<MCPseudoProbeAddrFragment>(Fragment);
+        Fixups = PF.getFixups();
+        break;
+      }
+      }
+      uint64_t FragmentOffset = Layout.getFragmentOffset(&Fragment);
+      // const auto *Atom = Fragment.getAtom();
+      for (auto &Fixup : Fixups) {
+        auto FixupOffset = Fixup.getOffset();
+        auto *FixupValue = Fixup.getValue();
+        auto FixupKind = Fixup.getKind();
+        MCValue Res;
+        FixupValue->evaluateAsValue(Res, Layout);
+        auto *SymA = Res.getSymA();
+        auto *SymB = Res.getSymB();
+        auto Constant = Res.getConstant();
+        auto Variant = Res.getAccessVariant();
+        gtirb::SymAttributeSet Attrs;
+        gtirb::Symbol *GtirbSymA;
+        gtirb::Symbol *GtirbSymB;
+        gtirb::SymbolicExpression *GtirbSymExpr = nullptr;
+        if (SymA) {
+          GtirbSymA = SetSymbolReferent(&SymA->getSymbol());
+        }
+        if (SymB) {
+          GtirbSymB = SetSymbolReferent(&SymB->getSymbol());
+        }
+        auto SymExprOffset = FragmentOffset + FixupOffset;
+        // unsigned FixupFlags = getBackendPtr()->getFixupKindInfo(Fixup.getKind()).Flags;
+        bool IsPCRel =
+            getBackendPtr()->getFixupKindInfo(Fixup.getKind()).Flags &
+            MCFixupKindInfo::FKF_IsPCRel;
+        if (SymA && SymB) {
+          GtirbSymExpr = &BI->addSymbolicExpression(
+              SymExprOffset,
+              gtirb::SymAddrAddr{1, Constant, GtirbSymA, GtirbSymB, Attrs});
+        } else if (SymA && !IsPCRel) {
+          GtirbSymExpr = &BI->addSymbolicExpression(
+              SymExprOffset, gtirb::SymAddrConst{Constant, GtirbSymA, Attrs});
+        } else if (SymA) {
+          GtirbSymExpr = &BI->addSymbolicExpression(
+              SymExprOffset, gtirb::SymAddrConst{0, GtirbSymA, Attrs});
+        } else {
+          continue;
+        }
+        if (GtirbSymExpr) {
+          SymbolicExpressionInfo[std::make_tuple(BI->getUUID(), SymExprOffset)] =
+          std::make_tuple(FixupKind, Variant);
+          DEBUG_WITH_TYPE("gtirb", dbgs() << Section->getName() << "["
+                                          << FixupOffset + FragmentOffset << "]" << "\n"
+                                          << "FixupKind: " << FixupKind << " "
+                                          << "Variant: " << Variant << "\n";
+                          FixupValue->print(dbgs(), MAI); dbgs() << "\n";);
+        }
+      }
+    }
+  }
+  // Add Symbols
+  for (auto &[Symbol, GtirbSym] : SymbolMap) {
+    SetSymbolReferent(Symbol);
+  }
+  M->addAuxData<gtirb::schema::FunctionNames>(std::move(FunctionNames));
+  M->addAuxData<gtirb::schema::FunctionBlocks>(std::move(FunctionBlocks));
+  M->addAuxData<gtirb::schema::FunctionEntries>(std::move(FunctionEntries));
+  M->addAuxData<gtirb::schema::SectionIndex>(std::move(SectionIndex));
+  M->addAuxData<gtirb::schema::SymbolicExpressionInfo>(
+      std::move(SymbolicExpressionInfo));
+  DEBUG_WITH_TYPE("gtirb", dbgs() << "Recording: "
+                                  << SymbolicExpressionInfo.size() << "\n";);
+  std::ostringstream GtirbStream;
+  Ir->save(GtirbStream);
+  std::string GtirbContent = GtirbStream.str();
+  DEBUG_WITH_TYPE("gtirb", dbgs() << "Writing GTIRB\n Length: "
+                                  << GtirbContent.length() << "\n";);
+  return GtirbContent;
 }
 
 void MCAssembler::writeSectionData(raw_ostream &OS, const MCSection *Sec,

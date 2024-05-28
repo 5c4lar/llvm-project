@@ -173,6 +173,9 @@
 /* Define if zstd compression is available */
 #cmakedefine01 LLVM_ENABLE_ZSTD
 
+/* Define if gtirb is available */
+#cmakedefine01 LLVM_ENABLE_GTIRB
+
 /* Define if LLVM is using tflite */
 #cmakedefine LLVM_HAVE_TFLITE
 

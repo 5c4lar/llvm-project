@@ -101,6 +101,8 @@ void Ctx::reset() {
   lazyBitcodeFiles.clear();
   inputSections.clear();
   ehInputSections.clear();
+  // 5c4lar
+  gtirbInputSections.clear();
   duplicates.clear();
   nonPrevailingSyms.clear();
   whyExtractRecords.clear();
@@ -2998,10 +3000,15 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
       for (InputSectionBase *s : f->getSections()) {
         if (!s || s == &InputSection::discarded)
           continue;
-        if (LLVM_UNLIKELY(isa<EhInputSection>(s)))
+        if (LLVM_UNLIKELY(isa<EhInputSection>(s))) {
           ctx.ehInputSections.push_back(cast<EhInputSection>(s));
-        else
+        }
+        // 5c4lar
+        else if (LLVM_UNLIKELY(isa<GtirbInputSection>(s))) {
+          ctx.gtirbInputSections.push_back(cast<GtirbInputSection>(s));
+        } else {
           ctx.inputSections.push_back(s);
+        }
       }
     }
     for (BinaryFile *f : ctx.binaryFiles)
@@ -3131,6 +3138,11 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
   if (config->icf != ICFLevel::None) {
     findKeepUniqueSections<ELFT>(args);
     doIcf<ELFT>();
+  }
+
+  // 5c4lar
+  if (!ctx.gtirbInputSections.empty()) {
+    combineGtirbSections();
   }
 
   // Read the callgraph now that we know what was gced or icfed
