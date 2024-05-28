@@ -41,6 +41,7 @@ class ELFFileBase;
 class SharedFile;
 class InputSectionBase;
 class EhInputSection;
+class GtirbInputSection;
 class Symbol;
 class BitcodeCompiler;
 
@@ -459,6 +460,8 @@ struct Ctx {
   SmallVector<BitcodeFile *, 0> lazyBitcodeFiles;
   SmallVector<InputSectionBase *, 0> inputSections;
   SmallVector<EhInputSection *, 0> ehInputSections;
+  // 5c4lar
+  SmallVector<GtirbInputSection *, 0> gtirbInputSections;
   // Duplicate symbol candidates.
   SmallVector<DuplicateSymbol, 0> duplicates;
   // Symbols in a non-prevailing COMDAT group which should be changed to an

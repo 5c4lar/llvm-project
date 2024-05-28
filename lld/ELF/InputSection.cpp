@@ -175,11 +175,15 @@ uint64_t SectionBase::getOffset(uint64_t offset) const {
         return isec->outSecOff + es->getParentOffset(offset);
     return offset;
   }
-  case Merge:
+  case Merge: {
     const MergeInputSection *ms = cast<MergeInputSection>(this);
     if (InputSection *isec = ms->getParent())
       return isec->outSecOff + ms->getParentOffset(offset);
     return ms->getParentOffset(offset);
+  }
+  // 5c4lar
+  case Gtirb:
+    return 0;
   }
   llvm_unreachable("invalid section kind");
 }

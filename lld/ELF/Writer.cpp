@@ -593,6 +593,9 @@ template <class ELFT> void elf::createSyntheticSections() {
   add(*in.shStrTab);
   if (in.strTab)
     add(*in.strTab);
+  // 5c4lar
+  in.gtirb = std::make_unique<GtirbSection>();
+  add(*in.gtirb);
 }
 
 // The main function of the writer.
@@ -1692,6 +1695,8 @@ template <class ELFT> void Writer<ELFT>::finalizeAddressDependentContent() {
   AArch64Err843419Patcher a64p;
   ARMErr657417Patcher a32p;
   script->assignAddresses();
+  // 5c4lar
+  finalizeSynthetic(in.gtirb.get());
   // .ARM.exidx and SHF_LINK_ORDER do not require precise addresses, but they
   // do require the relative addresses of OutputSections because linker scripts
   // can assign Virtual Addresses to OutputSections that are not monotonically

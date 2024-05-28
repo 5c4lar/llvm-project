@@ -541,6 +541,9 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T, bool Large) {
       Ctx->getELFSection(".pseudo_probe_desc", DebugSecType, 0);
 
   LLVMStatsSection = Ctx->getELFSection(".llvm_stats", ELF::SHT_PROGBITS, 0);
+
+  // 5c4lar: Gtirb section
+  GTIRBSection = Ctx->getELFSection(".gtirb", ELF::SHT_PROGBITS, 0);
 }
 
 void MCObjectFileInfo::initGOFFMCObjectFileInfo(const Triple &T) {

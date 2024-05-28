@@ -1682,6 +1682,11 @@ void AsmPrinter::emitFunctionBody() {
   // Emit target-specific gunk before the function body.
   emitFunctionBodyStart();
 
+  // 5c4lar
+  auto &GtirbFunction =
+      MAI->GtirbInfo.Functions.emplace_back();
+  GtirbFunction.Sym = CurrentFnSym;
+
   if (isVerbose()) {
     // Get MachineDominatorTree or compute it on the fly if it's unavailable
     MDT = getAnalysisIfAvailable<MachineDominatorTree>();
@@ -1707,6 +1712,9 @@ void AsmPrinter::emitFunctionBody() {
 
   bool CanDoExtraAnalysis = ORE->allowExtraAnalysis(DEBUG_TYPE);
   for (auto &MBB : *MF) {
+    // 5c4lar
+    auto *GtirbBBBeginSym = createTempSymbol("gtirb_bb_begin");
+    OutStreamer->emitLabel(GtirbBBBeginSym);
     // Print a label for the basic block.
     emitBasicBlockStart(MBB);
     DenseMap<StringRef, unsigned> MnemonicCounts;
@@ -1836,6 +1844,12 @@ void AsmPrinter::emitFunctionBody() {
     if (MF->hasBBLabels() ||
         (MAI->hasDotTypeDotSizeDirective() && MBB.isEndSection()))
       OutStreamer->emitLabel(MBB.getEndSymbol());
+
+    // 5c4lar
+    auto *GtirbBBEndSym = createTempSymbol("gtirb_bb_end");
+    OutStreamer->emitLabel(GtirbBBEndSym);
+    MCAsmInfo::MCGtirbInfo::Function::BasicBlock Block = {GtirbBBBeginSym, GtirbBBEndSym, MBB.isEntryBlock()};
+    GtirbFunction.BasicBlocks.emplace_back(Block);
 
     if (MBB.isEndSection()) {
       // The size directive for the section containing the entry block is
@@ -2289,8 +2303,15 @@ bool AsmPrinter::doFinalization(Module &M) {
   computeGlobalGOTEquivs(M);
 
   // Emit global variables.
-  for (const auto &G : M.globals())
+  for (const auto &G : M.globals()) {
     emitGlobalVariable(&G);
+    // 5c4lar
+    MCSymbol *GVSym = getSymbol(&G);
+    const DataLayout &DL = G.getParent()->getDataLayout();
+    uint64_t GVSize = DL.getTypeAllocSize(G.getValueType());
+    MCAsmInfo::MCGtirbInfo::Variable Var{GVSym, GVSize};
+    MAI->GtirbInfo.Variables.emplace_back(Var);
+  }
 
   // Emit remaining GOT equivalent globals.
   emitGlobalGOTEquivs();
@@ -2518,6 +2539,9 @@ bool AsmPrinter::doFinalization(Module &M) {
           MAI->getCodePointerSize());
     }
   }
+
+  // 5c4lar
+  MAI->GtirbInfo.ModuleName = M.getName().str();
 
   // Allow the target to emit any magic that it wants at the end of the file,
   // after everything else has gone out.

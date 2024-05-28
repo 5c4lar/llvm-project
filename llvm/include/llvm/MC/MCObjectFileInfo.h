@@ -186,6 +186,9 @@ protected:
   MCSection *MergeableConst16Section = nullptr;
   MCSection *MergeableConst32Section = nullptr;
 
+  // 5clar: GTIRB section (.gtirb)
+  MCSection *GTIRBSection = nullptr; 
+
   // MachO specific sections.
 
   /// Section for thread local structure information.
@@ -382,6 +385,11 @@ public:
   const MCSection *getMergeableConst32Section() const {
     return MergeableConst32Section;
   }
+
+  // 5clar: GTIRB section (.gtirb)
+  const MCSection *getGTIRBSection() const {
+    return GTIRBSection;
+  } 
 
   // MachO specific sections.
   const MCSection *getTLSTLVSection() const { return TLSTLVSection; }

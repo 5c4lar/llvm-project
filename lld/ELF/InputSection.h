@@ -48,7 +48,7 @@ template <class ELFT> struct RelsOrRelas {
 // sections.
 class SectionBase {
 public:
-  enum Kind { Regular, Synthetic, EHFrame, Merge, Output };
+  enum Kind { Regular, Synthetic, EHFrame, Merge, Output, Gtirb /* 5c4lar */ };
 
   Kind kind() const { return (Kind)sectionKind; }
 
@@ -365,6 +365,15 @@ public:
 
   SyntheticSection *getParent() const;
   uint64_t getParentOffset(uint64_t offset) const;
+};
+
+// 5c4lar
+class GtirbInputSection : public InputSectionBase {
+public:
+  template <class ELFT>
+  GtirbInputSection(ObjFile<ELFT> &f, const typename ELFT::Shdr &header,
+                 StringRef name): InputSectionBase(f, header, name, Gtirb) {}
+  static bool classof(const SectionBase *s) { return s->kind() == Gtirb; }
 };
 
 // This is a section that is added directly to an output section

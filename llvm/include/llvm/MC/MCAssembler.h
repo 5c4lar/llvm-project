@@ -265,6 +265,10 @@ public:
   /// defining a separate atom.
   bool isSymbolLinkerVisible(const MCSymbol &SD) const;
 
+  // 5c4lar
+  std::string getGtirb(const MCAsmLayout &Layout,
+                       std::vector<const MCSection *> &SectionTable) const;
+
   /// Emit the section contents to \p OS.
   void writeSectionData(raw_ostream &OS, const MCSection *Section,
                         const MCAsmLayout &Layout) const;

@@ -1170,6 +1170,17 @@ uint64_t ELFWriter::writeObject(MCAssembler &Asm, const MCAsmLayout &Layout) {
     SectionOffsets[Group] = std::make_pair(SecStart, SecEnd);
   }
 
+  {
+    // 5c4lar: write the gtirb to the .gtirb section
+    MCSectionELF *GtirbSection = Ctx.getELFSection(".gtirb", ELF::SHT_PROGBITS, 0);
+    addToSectionTable(GtirbSection);
+    uint64_t SecStart = W.OS.tell();
+    std::vector<const MCSection*> MCSectionTable(SectionTable.begin(), SectionTable.end());
+    W.OS << Asm.getGtirb(Layout, MCSectionTable);
+    uint64_t SecEnd = W.OS.tell();
+    SectionOffsets[GtirbSection] = std::make_pair(SecStart, SecEnd);
+  }
+
   if (Mode == DwoOnly) {
     // dwo files don't have symbol tables or relocations, but they do have
     // string tables.

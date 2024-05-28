@@ -27,10 +27,14 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/StringTableBuilder.h"
+#include "llvm/MC/AuxDataSchema.h"
+#include "llvm/Support/Allocator.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Parallel.h"
 #include "llvm/Support/Threading.h"
+#include <map>
+#include <gtirb/gtirb.hpp>
 
 namespace lld::elf {
 class Defined;
@@ -1283,6 +1287,31 @@ private:
   SmallVector<const Symbol *, 0> symbols;
 };
 
+// 5c4lar
+class GtirbSection final : public SyntheticSection {
+public:
+  SmallVector<gtirb::IR *, 0> gtirbIrs;
+  std::map<InputSectionBase *, gtirb::Section*> sectionMap;
+  std::set<InputSection *> mergeSyntheticSections;
+  gtirb::Context gtirbCtx;
+  gtirb::IR *ir;
+  std::ostringstream gtirbStream;
+  GtirbSection()
+      : SyntheticSection(0, llvm::ELF::SHT_PROGBITS,
+                         /*alignment=*/1, ".gtirb") {
+    gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::FunctionNames>();
+    gtirb::AuxDataContainer::registerAuxDataType<
+        gtirb::schema::FunctionEntries>();
+    gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::FunctionBlocks>();
+    gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::SectionIndex>();
+    gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::SymbolicExpressionInfo>();
+  }
+  void writeTo(uint8_t *buf) override;
+  void finalizeContents() override;
+  size_t getSize() const override;
+};
+void combineGtirbSections();
+
 InputSection *createInterpSection();
 MergeInputSection *createCommentSection();
 template <class ELFT> void splitSections();
@@ -1363,6 +1392,8 @@ struct InStruct {
   std::unique_ptr<StringTableSection> strTab;
   std::unique_ptr<SymbolTableBaseSection> symTab;
   std::unique_ptr<SymtabShndxSection> symTabShndx;
+  // 5c4lar
+  std::unique_ptr<GtirbSection> gtirb;
 
   void reset();
 };

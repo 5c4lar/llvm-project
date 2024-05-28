@@ -238,8 +238,10 @@ void OutputSection::finalizeInputSections() {
     for (InputSection *s : isd->sections)
       commitSection(s);
   }
-  for (auto *ms : mergeSections)
+  for (auto *ms : mergeSections) {
     ms->finalizeContents();
+    in.gtirb->mergeSyntheticSections.insert(ms);
+  }
 }
 
 static void sortByOrder(MutableArrayRef<InputSection *> in,

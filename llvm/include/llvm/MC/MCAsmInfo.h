@@ -17,7 +17,10 @@
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/MC/MCDirectives.h"
+#include "llvm/MC/MCFragment.h"
 #include "llvm/MC/MCTargetOptions.h"
+#include <map>
+#include <set>
 #include <vector>
 
 namespace llvm {
@@ -548,6 +551,26 @@ protected:
 public:
   explicit MCAsmInfo();
   virtual ~MCAsmInfo();
+
+    // 5c4lar
+  mutable struct MCGtirbInfo {
+    std::string ModuleName;
+    struct Function {
+      MCSymbol *Sym;
+      struct BasicBlock {
+        MCSymbol *Begin;
+        MCSymbol *End;
+        bool IsEntry = false;
+      };
+      std::vector<BasicBlock> BasicBlocks;
+    };
+    struct Variable {
+      MCSymbol *Sym;
+      uint64_t Size;
+    };
+    std::vector<Function> Functions;
+    std::vector<Variable> Variables;
+  } GtirbInfo;
 
   /// Get the code pointer size in bytes.
   unsigned getCodePointerSize() const { return CodePointerSize; }
