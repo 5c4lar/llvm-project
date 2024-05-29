@@ -4169,6 +4169,19 @@ void GtirbSection::finalizeContents() {
   }
 
   for (auto *symbol : originSymbols) {
+    if (symbol->hasReferent()) {
+        auto *datablock = symbol->getReferent<gtirb::DataBlock>();
+        auto *codeblock = symbol->getReferent<gtirb::CodeBlock>();
+        if (datablock) {
+            if (datablock->getByteInterval()->getSection()->getModule()->getUUID() != module->getUUID()) {
+                continue;
+            }
+        } else if (codeblock) {
+            if (codeblock->getByteInterval()->getSection()->getModule()->getUUID() != module->getUUID()) {
+                continue;
+            }
+        }
+    }
     module->addSymbol(symbol);
   }
   module->addAuxData<gtirb::schema::SymbolicExpressionInfo>(std::move(symbolicExpressionInfo));
