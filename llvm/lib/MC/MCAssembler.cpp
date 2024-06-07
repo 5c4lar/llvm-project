@@ -953,17 +953,13 @@ MCAssembler::getGtirb(const MCAsmLayout &Layout,
         }
         auto SymExprOffset = FragmentOffset + FixupOffset;
         auto FixupKindInfo = getBackendPtr()->getFixupKindInfo(Fixup.getKind());
-        bool IsPCRel = FixupKindInfo.Flags & MCFixupKindInfo::FKF_IsPCRel;
         if (SymA && SymB) {
           GtirbSymExpr = &BI->addSymbolicExpression(
               SymExprOffset,
               gtirb::SymAddrAddr{1, Constant, GtirbSymA, GtirbSymB, Attrs});
-        } else if (SymA && !IsPCRel) {
-          GtirbSymExpr = &BI->addSymbolicExpression(
-              SymExprOffset, gtirb::SymAddrConst{Constant, GtirbSymA, Attrs});
         } else if (SymA) {
           GtirbSymExpr = &BI->addSymbolicExpression(
-              SymExprOffset, gtirb::SymAddrConst{Constant + (FixupKindInfo.TargetSize / 8), GtirbSymA, Attrs});
+              SymExprOffset, gtirb::SymAddrConst{Constant, GtirbSymA, Attrs});
         } else {
           continue;
         }
