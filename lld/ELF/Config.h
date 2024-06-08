@@ -287,6 +287,7 @@ struct Config {
   bool relax;
   bool relaxGP;
   bool relocatable;
+  bool resolveGroups;
   bool relrGlibc = false;
   bool relrPackDynRelocs = false;
   llvm::DenseSet<llvm::StringRef> saveTempsArgs;
