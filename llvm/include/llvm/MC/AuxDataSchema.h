@@ -41,8 +41,8 @@ using PeResource = std::tuple<std::vector<uint8_t>, gtirb::Offset, uint64_t>;
 using Relocation =
     std::tuple<uint64_t, std::string, std::string, int64_t, uint64_t, std::string, std::string>;
 
-/// SymbolicExpressionInfo is a tuple of the form {UUID, offset, size, type, variant}.
-using SymbolicExpressionInfo = std::map<std::tuple<gtirb::UUID, uint64_t>, std::tuple<uint32_t, uint32_t>>;
+/// SymbolicExpressionInfo is a map from {BI_UUID, Offset} to {FixupKindInfo.Name, FixupKindInfo.TargetOffset, FixupKindInfo.TargetSize, FixupKindInfo.Flags, Variant}.
+using SymbolicExpressionInfo = std::map<std::tuple<gtirb::UUID, uint64_t>, std::tuple<std::string, uint32_t, uint32_t, uint32_t, uint16_t>>;
 } // namespace auxdata
 
 /// \file AuxDataSchema.h

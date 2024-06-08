@@ -934,7 +934,6 @@ MCAssembler::getGtirb(const MCAsmLayout &Layout,
       for (auto &Fixup : Fixups) {
         auto FixupOffset = Fixup.getOffset();
         auto *FixupValue = Fixup.getValue();
-        auto FixupKind = Fixup.getKind();
         MCValue Res;
         FixupValue->evaluateAsValue(Res, Layout);
         auto *SymA = Res.getSymA();
@@ -965,11 +964,9 @@ MCAssembler::getGtirb(const MCAsmLayout &Layout,
         }
         if (GtirbSymExpr) {
           SymbolicExpressionInfo[std::make_tuple(BI->getUUID(), SymExprOffset)] =
-          std::make_tuple(FixupKind, Variant);
+          std::make_tuple(std::string(FixupKindInfo.Name), FixupKindInfo.TargetOffset, FixupKindInfo.TargetSize, FixupKindInfo.Flags, static_cast<uint16_t>(Variant));
           DEBUG_WITH_TYPE("gtirb", dbgs() << Section->getName() << "["
-                                          << FixupOffset + FragmentOffset << "]" << "\n"
-                                          << "FixupKind: " << FixupKind << " "
-                                          << "Variant: " << Variant << "\n";
+                                          << FixupOffset + FragmentOffset << "]" << "\n";
                           FixupValue->print(dbgs(), MAI); dbgs() << "\n";);
         }
       }
