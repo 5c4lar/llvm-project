@@ -4083,10 +4083,20 @@ void GtirbSection::finalizeContents() {
 //        }
         auto relocs = isec->relocs();
         if (!relocs.empty()) {
-          DEBUG_WITH_TYPE("gtirb", dbgs() << "Dump relocations in section" << outputSection->name << "\n";);
-          for (auto &reloc : relocs) {
-            DEBUG_WITH_TYPE("gtirb", dbgs() << "0x" << Twine::utohexstr(outputSection->addr + isec->outSecOff + reloc.offset) << " " << toString(reloc.type) << " " << (reloc.sym->getName().empty() ?  ("L_" + Twine::utohexstr(reloc.sym->getVA())) : reloc.sym->getName().str()) << " + " << reloc.addend << "\n";);
-          }
+          DEBUG_WITH_TYPE(
+              "gtirb", dbgs() << "Dump relocations in section"
+                              << outputSection->name << "\n";
+              for (auto &reloc
+                   : relocs) {
+                dbgs() << "0x"
+                       << Twine::utohexstr(outputSection->addr +
+                                           isec->outSecOff + reloc.offset)
+                       << " " << toString(reloc.type) << " "
+                       << (reloc.sym->getName().empty()
+                               ? ("L_" + Twine::utohexstr(reloc.sym->getVA()))
+                               : reloc.sym->getName().str())
+                       << " + " << reloc.addend << "\n";
+              });
         }
         uint64_t isecVA = isec->getVA();
         gtirb::ByteInterval *bi;
