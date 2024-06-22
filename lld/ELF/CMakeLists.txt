@@ -17,6 +17,12 @@ endif()
 if(LLVM_ENABLE_ZSTD)
   list(APPEND imported_libs ${zstd_target})
 endif()
+  
+if(LLVM_ENABLE_GTIRB)
+  find_package(gtirb REQUIRED CONFIG)
+  find_package(protobuf REQUIRED CONFIG)
+  list(APPEND imported_libs gtirb gtirb_proto protobuf::libprotobuf)
+endif()
 
 add_lld_library(lldELF
   AArch64ErrataFix.cpp
@@ -85,10 +91,3 @@ add_lld_library(lldELF
   ELFOptionsTableGen
   intrinsics_gen
   )
-  
-if(LLVM_ENABLE_GTIRB)
-  find_package(gtirb REQUIRED CONFIG)
-  find_package(protobuf REQUIRED CONFIG)
-  target_link_libraries(lldELF PUBLIC gtirb gtirb_proto protobuf::libprotobuf)
-  target_include_directories(lldELF PUBLIC ${gtirb_INCLUDE_DIRS})
-endif()
