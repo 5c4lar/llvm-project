@@ -37,6 +37,12 @@ if(LLVM_ENABLE_ZSTD)
   list(APPEND imported_libs ${zstd_target})
 endif()
 
+if(LLVM_ENABLE_GTIRB)
+  find_package(gtirb REQUIRED CONFIG)
+  find_package(protobuf REQUIRED CONFIG)
+  list(APPEND imported_libs gtirb gtirb_proto protobuf::libprotobuf)
+endif()
+
 if( MSVC OR MINGW )
   # libuuid required for FOLDERID_Profile usage in lib/Support/Windows/Path.inc.
   # advapi32 required for CryptAcquireContextW in lib/Support/Windows/Path.inc.
@@ -321,6 +327,18 @@ if(LLVM_ENABLE_ZSTD)
   get_library_name(${zstd_library} zstd_library)
   set(llvm_system_libs ${llvm_system_libs} "${zstd_library}")
 endif()
+
+if(LLVM_ENABLE_GTIRB)
+  # get_property(gtirb_library TARGET gtirb PROPERTY LOCATION)
+  # get_property(gtirb_proto_library TARGET gtirb_proto PROPERTY LOCATION)
+  # get_property(protobuf_library TARGET protobuf::libprotobuf PROPERTY LOCATION)
+  # get_library_name(${gtirb_library} gtirb_library)
+  # get_library_name(${gtirb_proto_library} gtirb_proto_library)
+  # get_library_name(${protobuf_library} protobuf_library)
+  # set(llvm_system_libs ${llvm_system_libs} ${gtirb_library} ${gtirb_proto_library} ${protobuf_library})
+  set(llvm_system_libs ${llvm_system_libs} gtirb gtirb_proto protobuf)
+endif()
+
 
 if(LLVM_ENABLE_TERMINFO)
   if(NOT terminfo_library)

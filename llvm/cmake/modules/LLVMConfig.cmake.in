@@ -80,6 +80,11 @@ if(LLVM_ENABLE_ZSTD)
   find_package(zstd)
 endif()
 
+set(LLVM_ENABLE_GTIRB @LLVM_ENABLE_GTIRB@)
+if(LLVM_ENABLE_GTIRB)
+  find_package(gtirb)
+endif()
+
 set(LLVM_ENABLE_LIBXML2 @LLVM_ENABLE_LIBXML2@)
 if(LLVM_ENABLE_LIBXML2)
   find_package(LibXml2)

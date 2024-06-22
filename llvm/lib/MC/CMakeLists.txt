@@ -1,3 +1,9 @@
+if(LLVM_ENABLE_GTIRB)
+  find_package(gtirb REQUIRED CONFIG)
+  find_package(Protobuf REQUIRED CONFIG)
+  set(imported_libs gtirb gtirb_proto protobuf::libprotobuf)
+endif()
+
 add_llvm_component_library(LLVMMC
   ConstantPools.cpp
   DXContainerPSVInfo.cpp
@@ -81,15 +87,12 @@ add_llvm_component_library(LLVMMC
   BinaryFormat
   DebugInfoCodeView
 
+  LINK_LIBS
+  ${imported_libs}
+
   DEPENDS
   intrinsics_gen
   )
 
 add_subdirectory(MCParser)
 add_subdirectory(MCDisassembler)
-if(LLVM_ENABLE_GTIRB)
-  find_package(gtirb REQUIRED CONFIG)
-  find_package(Protobuf REQUIRED CONFIG)
-  target_link_libraries(LLVMMC PUBLIC gtirb gtirb_proto protobuf::libprotobuf)
-  target_include_directories(LLVMMC PUBLIC ${gtirb_INCLUDE_DIRS})
-endif()
