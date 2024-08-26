@@ -1114,6 +1114,10 @@ InputSectionBase *ObjFile<ELFT>::createInputSection(uint32_t idx,
   // class. For relocatable outputs, they are just passed through.
   if (name == ".eh_frame" && !ctx.arg.relocatable)
     return makeThreadLocal<EhInputSection>(*this, sec, name);
+  
+  // 5c4lar
+  if (name == ".gtirb")
+    return makeThreadLocal<GtirbInputSection>(*this, sec, name);
 
   if ((sec.sh_flags & SHF_MERGE) && shouldMerge(sec, name))
     return makeThreadLocal<MergeInputSection>(*this, sec, name);

@@ -272,6 +272,7 @@ void OutputSection::finalizeInputSections() {
     }
 
     ms->finalizeContents();
+    ctx.in.gtirb->mergeSyntheticSections.insert(ms);
   }
 }
 

@@ -460,8 +460,7 @@ void EhFrameSection::addRecords(EhInputSection *sec, ArrayRef<RelTy> rels) {
   }
 }
 
-template <class ELFT>
-void EhFrameSection::addSectionAux(EhInputSection *sec) {
+template <class ELFT> void EhFrameSection::addSectionAux(EhInputSection *sec) {
   if (!sec->isLive())
     return;
   const RelsOrRelas<ELFT> rels =
@@ -924,7 +923,7 @@ void MipsGotSection::build() {
   // to `Local16` list. Preemptible symbol might become non-preemptible
   // one if, for example, it gets a related copy relocation.
   for (FileGot &got : gots) {
-    for (auto &p: got.global)
+    for (auto &p : got.global)
       if (!p.first->isPreemptible)
         got.local16.insert({{p.first, 0}, 0});
     got.global.remove_if([&](const std::pair<Symbol *, size_t> &p) {
@@ -1017,15 +1016,15 @@ void MipsGotSection::build() {
       p.second.firstIndex = index;
       index += p.second.count;
     }
-    for (auto &p: got.local16)
+    for (auto &p : got.local16)
       p.second = index++;
-    for (auto &p: got.global)
+    for (auto &p : got.global)
       p.second = index++;
-    for (auto &p: got.relocs)
+    for (auto &p : got.relocs)
       p.second = index++;
-    for (auto &p: got.tls)
+    for (auto &p : got.tls)
       p.second = index++;
-    for (auto &p: got.dynTlsSymbols) {
+    for (auto &p : got.dynTlsSymbols) {
       p.second = index;
       index += 2;
     }
@@ -4654,7 +4653,8 @@ createMemtagGlobalDescriptors(Ctx &ctx,
     const uint64_t stepToEncode = ((addr - lastGlobalEnd) / kMemtagGranuleSize)
                                   << kMemtagStepSizeBits;
     if (sizeToEncode < (1 << kMemtagStepSizeBits)) {
-      sectionSize += computeOrWriteULEB128(stepToEncode | sizeToEncode, buf, sectionSize);
+      sectionSize +=
+          computeOrWriteULEB128(stepToEncode | sizeToEncode, buf, sectionSize);
     } else {
       sectionSize += computeOrWriteULEB128(stepToEncode, buf, sectionSize);
       sectionSize += computeOrWriteULEB128(sizeToEncode - 1, buf, sectionSize);
@@ -4983,6 +4983,328 @@ template <class ELFT> void elf::createSyntheticSections(Ctx &ctx) {
     add(*ctx.in.shStrTab);
   if (ctx.in.strTab)
     add(*ctx.in.strTab);
+  // 5c4lar
+  ctx.in.gtirb = std::make_unique<GtirbSection>(ctx);
+  add(*ctx.in.gtirb);
+}
+
+// 5c4lar
+#define DEBUG_TYPE "gtirb"
+void GtirbSection::writeTo(uint8_t *buf) {
+  memcpy(buf, gtirbStream.str().c_str(), gtirbStream.str().size());
+}
+size_t GtirbSection::getSize() const { return gtirbStream.str().size(); }
+void GtirbSection::finalizeContents() {
+  static std::set<std::string> sectionFilter = {".gtirb"};
+  gtirb::schema::FunctionNames::Type functionNames;
+  gtirb::schema::FunctionEntries::Type functionEntries;
+  gtirb::schema::FunctionBlocks::Type functionBlocks;
+  gtirb::schema::FunctionNames::Type originFunctionNames;
+  gtirb::schema::FunctionEntries::Type originFunctionEntries;
+  gtirb::schema::FunctionBlocks::Type originFunctionBlocks;
+  gtirb::schema::SectionIndex::Type sectionIndex;
+  gtirb::schema::SymbolicExpressionInfo::Type symbolicExpressionInfo;
+  gtirb::schema::SymbolicExpressionInfo::Type originalSymbolicExpressionInfo;
+  ir = gtirb::IR::Create(gtirbCtx);
+  auto *module = ir->addModule(gtirbCtx, ctx.arg.outputFile.str());
+  std::set<gtirb::Symbol *> originSymbols;
+  std::map<std::string, gtirb::Symbol *> definedCodeSymbols;
+  std::map<gtirb::Symbol *, gtirb::ProxyBlock *> proxies;
+  std::map<gtirb::Symbol *, gtirb::Symbol *> symbolMap;
+  for (auto *originIr : ctx.in.gtirb->gtirbIrs) {
+    for (auto &originModule : originIr->modules()) {
+      for (auto &symbol : originModule.symbols()) {
+        originSymbols.emplace(&symbol);
+        if (symbol.hasReferent() && symbol.getReferent<gtirb::CodeBlock>()) {
+          definedCodeSymbols[symbol.getName()] = &symbol;
+        }
+      }
+      for (auto &proxy : originModule.proxy_blocks()) {
+        auto &symbol = originModule.findSymbols(proxy).front();
+        proxies[&symbol] = &proxy;
+      }
+      originFunctionNames.insert(
+          originModule.getAuxData<gtirb::schema::FunctionNames>()->begin(),
+          originModule.getAuxData<gtirb::schema::FunctionNames>()->end());
+      originFunctionEntries.insert(
+          originModule.getAuxData<gtirb::schema::FunctionEntries>()->begin(),
+          originModule.getAuxData<gtirb::schema::FunctionEntries>()->end());
+      originFunctionBlocks.insert(
+          originModule.getAuxData<gtirb::schema::FunctionBlocks>()->begin(),
+          originModule.getAuxData<gtirb::schema::FunctionBlocks>()->end());
+      auto *moduleSymbolicExpressionInfo =
+          originModule.getAuxData<gtirb::schema::SymbolicExpressionInfo>();
+      if (moduleSymbolicExpressionInfo) {
+        originalSymbolicExpressionInfo.insert(
+            moduleSymbolicExpressionInfo->begin(),
+            moduleSymbolicExpressionInfo->end());
+      }
+    }
+  }
+  for (auto &[symbol, proxy] : proxies) {
+    if (definedCodeSymbols.count(symbol->getName()) != 0) {
+      auto *definedSymbol = definedCodeSymbols[symbol->getName()];
+      symbolMap[symbol] = definedSymbol;
+      originSymbols.erase(symbol);
+    } else {
+      module->addProxyBlock(proxy);
+    }
+  }
+  auto preprocessSymbolicExpression =
+      [&](gtirb::SymbolicExpression symExpr) -> gtirb::SymbolicExpression {
+    if (std::holds_alternative<gtirb::SymAddrConst>(symExpr)) {
+      if (symbolMap.count(std::get<gtirb::SymAddrConst>(symExpr).Sym)) {
+        return gtirb::SymAddrConst{
+            std::get<gtirb::SymAddrConst>(symExpr).Offset,
+            symbolMap[std::get<gtirb::SymAddrConst>(symExpr).Sym]};
+      }
+      return symExpr;
+    } else {
+      auto *sym1 = std::get<gtirb::SymAddrAddr>(symExpr).Sym1;
+      auto *sym2 = std::get<gtirb::SymAddrAddr>(symExpr).Sym2;
+      if (symbolMap.count(sym1)) {
+        sym1 = symbolMap[sym1];
+      }
+      if (symbolMap.count(sym2)) {
+        sym2 = symbolMap[sym2];
+      }
+      return gtirb::SymAddrAddr{1, std::get<gtirb::SymAddrAddr>(symExpr).Offset,
+                                sym1, sym2};
+    }
+  };
+  for (auto *outputSection : ctx.outputSections) {
+    const auto outputSectionName = outputSection->name.str();
+    if (sectionFilter.count(outputSectionName)) {
+      continue;
+    }
+    auto *section = module->addSection(gtirbCtx, outputSection->name.str());
+    sectionIndex[outputSection->sectionIndex] = section->getUUID();
+    for (SectionCommand *cmd : outputSection->commands) {
+      auto *isd = dyn_cast<InputSectionDescription>(cmd);
+      if (!isd)
+        continue;
+      for (auto *isec : isd->sections) {
+        //        if (!isec->getSize()) {
+        //          continue;
+        //        }
+        auto relocs = isec->relocs();
+        if (!relocs.empty()) {
+          DEBUG_WITH_TYPE(
+              "gtirb", dbgs() << "Dump relocations in section"
+                              << outputSection->name << "\n";
+              for (auto &reloc
+                   : relocs) {
+                dbgs() << "0x"
+                       << Twine::utohexstr(outputSection->addr +
+                                           isec->outSecOff + reloc.offset)
+                       << " " << toString(reloc.type) << " "
+                       << (reloc.sym->getName().empty()
+                               ? ("L_" + Twine::utohexstr(reloc.sym->getVA()))
+                               : reloc.sym->getName().str())
+                       << " + " << reloc.addend << "\n";
+              });
+        }
+        uint64_t isecVA = isec->getVA();
+        gtirb::ByteInterval *bi;
+        if (ctx.in.gtirb->sectionMap.count(isec)) {
+          auto *originGtirbSection = ctx.in.gtirb->sectionMap[isec];
+          bi = &*originGtirbSection->byte_intervals_begin();
+          std::map<uint64_t, gtirb::SymbolicExpression> symExprs;
+          for (auto symExpr : bi->symbolic_expressions()) {
+            symExprs[symExpr.getOffset()] =
+                preprocessSymbolicExpression(symExpr.getSymbolicExpression());
+            symbolicExpressionInfo[std::make_tuple(bi->getUUID(),
+                                                   symExpr.getOffset())] =
+                originalSymbolicExpressionInfo[std::make_tuple(
+                    bi->getUUID(), symExpr.getOffset())];
+          }
+          for (auto [offset, symExpr] : symExprs) {
+            bi->addSymbolicExpression(offset, symExpr);
+          }
+        } else if (ctx.in.gtirb->mergeSyntheticSections.count(isec)) {
+          auto *mergedIsec = dyn_cast<MergeSyntheticSection>(isec);
+          bi = gtirb::ByteInterval::Create(gtirbCtx, isec->getSize(), 0);
+          for (auto *sec : mergedIsec->sections) {
+            if (ctx.in.gtirb->sectionMap.count(sec)) {
+              auto *originGtirbSection = ctx.in.gtirb->sectionMap[sec];
+              auto &originBI = *originGtirbSection->byte_intervals_begin();
+              for (size_t i = 0; i < sec->pieces.size(); ++i) {
+                auto piece = sec->pieces[i];
+                // auto data = sec->getData(i);
+                std::vector<gtirb::DataBlock *> dataBlocks;
+                if (piece.live) {
+                  for (auto &block :
+                       originBI.findBlocksAtOffset(piece.inputOff)) {
+                    auto *gtirbDataBlock =
+                        gtirb::dyn_cast_or_null<gtirb::DataBlock>(&block);
+                    if (gtirbDataBlock) {
+                      dataBlocks.emplace_back(gtirbDataBlock);
+                    }
+                  }
+                  for (auto *dataBlock : dataBlocks) {
+                    bi->addBlock(piece.outputOff, dataBlock);
+                  }
+                  auto originSymbolicExprContainer =
+                      originBI.findSymbolicExpressionsAtOffset(piece.inputOff);
+                  if (!originSymbolicExprContainer.empty()) {
+                    bi->addSymbolicExpression(
+                        piece.outputOff,
+                        preprocessSymbolicExpression(
+                            originSymbolicExprContainer.begin()
+                                ->getSymbolicExpression()));
+                    symbolicExpressionInfo[std::make_tuple(bi->getUUID(),
+                                                           piece.outputOff)] =
+                        originalSymbolicExpressionInfo[std::make_tuple(
+                            originBI.getUUID(), piece.inputOff)];
+                  }
+                }
+              }
+            }
+          }
+        } else if (isa<EhFrameSection>(isec)) {
+          auto *ehFrameSection = dyn_cast<EhFrameSection>(isec);
+          bi = gtirb::ByteInterval::Create(gtirbCtx, isec->getSize(), 0);
+          for (auto *sec : ehFrameSection->sections) {
+            if (ctx.in.gtirb->sectionMap.count(sec)) {
+              auto *originGtirbSection = ctx.in.gtirb->sectionMap[sec];
+              auto &originBI = *originGtirbSection->byte_intervals_begin();
+              std::vector<gtirb::DataBlock *> blocks;
+              std::map<uint64_t, gtirb::SymbolicExpression> symExprs;
+              for (auto &dataBlock : originBI.data_blocks()) {
+                blocks.emplace_back(&dataBlock);
+              }
+              for (auto *block : blocks) {
+                bi->addBlock(sec->getOffset(block->getOffset()), block);
+              }
+              for (auto symExpr : originBI.symbolic_expressions()) {
+                symExprs[symExpr.getOffset()] = preprocessSymbolicExpression(
+                    symExpr.getSymbolicExpression());
+                symbolicExpressionInfo[std::make_tuple(
+                    bi->getUUID(), sec->getOffset(symExpr.getOffset()))] =
+                    originalSymbolicExpressionInfo[std::make_tuple(
+                        originBI.getUUID(), symExpr.getOffset())];
+              }
+              for (auto &[offset, symExpr] : symExprs) {
+                bi->addSymbolicExpression(sec->getOffset(offset), symExpr);
+              }
+            } else {
+              continue;
+            }
+          }
+        } else {
+          bi = gtirb::ByteInterval::Create(gtirbCtx, isec->getSize(), 0);
+        }
+        bi->setAddress(gtirb::Addr(isecVA));
+        section->addByteInterval(bi);
+      }
+    }
+  }
+  // Multiple symbol may refer to the same block, but have different id, handle
+  // this case.
+  std::map<std::string, gtirb::DataBlock *> DataBlockReference;
+  std::map<std::string, gtirb::CodeBlock *> CodeBlockReference;
+  for (auto *symbol : originSymbols) {
+    if (symbol->hasReferent()) {
+      auto *datablock = symbol->getReferent<gtirb::DataBlock>();
+      auto *codeblock = symbol->getReferent<gtirb::CodeBlock>();
+      if (datablock) {
+        if (datablock->getByteInterval()
+                ->getSection()
+                ->getModule()
+                ->getUUID() != module->getUUID()) {
+          continue;
+        } else {
+          DataBlockReference[symbol->getName()] = datablock;
+        }
+      } else if (codeblock) {
+        if (codeblock->getByteInterval()
+                ->getSection()
+                ->getModule()
+                ->getUUID() != module->getUUID()) {
+          continue;
+        } else {
+          CodeBlockReference[symbol->getName()] = codeblock;
+        }
+      }
+    }
+  }
+  for (auto *symbol : originSymbols) {
+    if (symbol->hasReferent()) {
+      auto *datablock = symbol->getReferent<gtirb::DataBlock>();
+      auto *codeblock = symbol->getReferent<gtirb::CodeBlock>();
+      if (codeblock) {
+        if (codeblock->getByteInterval()
+                ->getSection()
+                ->getModule()
+                ->getUUID() != module->getUUID()) {
+          symbol->setReferent(CodeBlockReference[symbol->getName()]);
+        }
+      } else if (datablock) {
+        if (datablock->getByteInterval()
+                ->getSection()
+                ->getModule()
+                ->getUUID() != module->getUUID()) {
+          symbol->setReferent(DataBlockReference[symbol->getName()]);
+        }
+      }
+    }
+    module->addSymbol(symbol);
+  }
+  // functionEntries.insert(originFunctionEntries->begin(),
+  //                        originFunctionEntries->end());
+  // functionBlocks.insert(originFunctionBlocks->begin(),
+  //                       originFunctionBlocks->end());
+  // functionNames.insert(originFunctionNames->begin(),
+  //                      originFunctionNames->end());
+  for (auto [UUID, Entries] : originFunctionEntries) {
+    for (auto Entry : Entries) {
+      auto *block = gtirb::dyn_cast<gtirb::CodeBlock>(
+          gtirb::Node::getByUUID(ctx.in.gtirb->gtirbCtx, Entry));
+      if (block->getByteInterval()->getSection()->getModule()->getUUID() !=
+          module->getUUID()) {
+        continue;
+      } else {
+        functionEntries.emplace(std::pair(UUID, Entries));
+        functionBlocks.emplace(std::pair(UUID, originFunctionBlocks[UUID]));
+        functionNames.emplace(std::pair(UUID, originFunctionNames[UUID]));
+      }
+    }
+  }
+  module->addAuxData<gtirb::schema::FunctionNames>(std::move(functionNames));
+  module->addAuxData<gtirb::schema::FunctionEntries>(
+      std::move(functionEntries));
+  module->addAuxData<gtirb::schema::FunctionBlocks>(std::move(functionBlocks));
+  module->addAuxData<gtirb::schema::SymbolicExpressionInfo>(
+      std::move(symbolicExpressionInfo));
+  module->addAuxData<gtirb::schema::SectionIndex>(std::move(sectionIndex));
+  ir->save(gtirbStream);
+}
+void elf::combineGtirbSections(Ctx &ctx) {
+  llvm::TimeTraceScope timeScope("Combine Gtirb sections");
+  for (GtirbInputSection *s : ctx.gtirbInputSections) {
+    std::istringstream gtirbIstream(
+        std::string(reinterpret_cast<const char *>(s->content().data()),
+                    s->content().size()));
+    gtirb::IR *ir = *gtirb::IR::load(ctx.in.gtirb->gtirbCtx, gtirbIstream);
+    auto &module = *ir->modules_begin();
+    auto *sectionIndex = module.getAuxData<gtirb::schema::SectionIndex>();
+    if (nullptr == sectionIndex) {
+      continue;
+    }
+    ctx.in.gtirb->gtirbIrs.emplace_back(ir);
+    auto sections = s->file->getSections();
+    for (auto &[idx, UUID] : *sectionIndex) {
+      InputSectionBase *inputSection = sections[idx];
+      if (!inputSection || inputSection == &InputSection::discarded)
+        continue;
+      auto *section = gtirb::dyn_cast<gtirb::Section>(
+          gtirb::Node::getByUUID(ctx.in.gtirb->gtirbCtx, UUID));
+      auto inputName = inputSection->name.str();
+      auto sectionName = section->getName();
+      assert(inputName == sectionName);
+      ctx.in.gtirb->sectionMap[inputSection] = section;
+    }
+  }
 }
 
 template void elf::splitSections<ELF32LE>(Ctx &);

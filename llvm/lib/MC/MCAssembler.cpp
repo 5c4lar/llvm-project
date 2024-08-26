@@ -13,6 +13,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/MC/AuxDataSchema.h" // 5c4lar
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCCodeEmitter.h"
@@ -54,12 +55,10 @@ namespace stats {
 STATISTIC(EmittedFragments, "Number of emitted assembler fragments - total");
 STATISTIC(EmittedRelaxableFragments,
           "Number of emitted assembler fragments - relaxable");
-STATISTIC(EmittedDataFragments,
-          "Number of emitted assembler fragments - data");
+STATISTIC(EmittedDataFragments, "Number of emitted assembler fragments - data");
 STATISTIC(EmittedAlignFragments,
           "Number of emitted assembler fragments - align");
-STATISTIC(EmittedFillFragments,
-          "Number of emitted assembler fragments - fill");
+STATISTIC(EmittedFillFragments, "Number of emitted assembler fragments - fill");
 STATISTIC(EmittedNopsFragments, "Number of emitted assembler fragments - nops");
 STATISTIC(EmittedOrgFragments, "Number of emitted assembler fragments - org");
 STATISTIC(evaluateFixup, "Number of evaluated fixups");
@@ -209,14 +208,15 @@ bool MCAssembler::evaluateFixup(const MCFixup &Fixup, const MCFragment *DF,
 
   bool ShouldAlignPC = FixupFlags & MCFixupKindInfo::FKF_IsAlignedDownTo32Bits;
   assert((ShouldAlignPC ? IsPCRel : true) &&
-    "FKF_IsAlignedDownTo32Bits is only allowed on PC-relative fixups!");
+         "FKF_IsAlignedDownTo32Bits is only allowed on PC-relative fixups!");
 
   if (IsPCRel) {
     uint64_t Offset = getFragmentOffset(*DF) + Fixup.getOffset();
 
     // A number of ARM fixups in Thumb mode require that the effective PC
     // address be determined as the 32-bit aligned version of the actual offset.
-    if (ShouldAlignPC) Offset &= ~0x3;
+    if (ShouldAlignPC)
+      Offset &= ~0x3;
     Value -= Offset;
   }
 
@@ -300,7 +300,7 @@ uint64_t MCAssembler::computeFragmentSize(const MCFragment &F) const {
     if (!OF.getOffset().evaluateAsValue(Value, *this)) {
       getContext().reportError(OF.getLoc(),
                                "expected assembly-time absolute expression");
-        return 0;
+      return 0;
     }
 
     uint64_t FragmentOffset = getFragmentOffset(OF);
@@ -612,7 +612,7 @@ static void writeFragment(raw_ostream &OS, const MCAssembler &Asm,
   // This variable (and its dummy usage) is to participate in the assert at
   // the end of the function.
   uint64_t Start = OS.tell();
-  (void) Start;
+  (void)Start;
 
   ++stats::EmittedFragments;
 
@@ -629,9 +629,9 @@ static void writeFragment(raw_ostream &OS, const MCAssembler &Asm,
     // severe enough that we want to report it. How to handle this?
     if (Count * AF.getValueSize() != FragmentSize)
       report_fatal_error("undefined .align directive, value size '" +
-                        Twine(AF.getValueSize()) +
-                        "' is not a divisor of padding size '" +
-                        Twine(FragmentSize) + "'");
+                         Twine(AF.getValueSize()) +
+                         "' is not a divisor of padding size '" +
+                         Twine(FragmentSize) + "'");
 
     // See if we are aligning with nops, and if so do that first to try to fill
     // the Count bytes.  Then if that did not fill any bytes or there are any
@@ -639,16 +639,19 @@ static void writeFragment(raw_ostream &OS, const MCAssembler &Asm,
     // If we are aligning with nops, ask that target to emit the right data.
     if (AF.hasEmitNops()) {
       if (!Asm.getBackend().writeNopData(OS, Count, AF.getSubtargetInfo()))
-        report_fatal_error("unable to write nop sequence of " +
-                          Twine(Count) + " bytes");
+        report_fatal_error("unable to write nop sequence of " + Twine(Count) +
+                           " bytes");
       break;
     }
 
     // Otherwise, write out in multiples of the value size.
     for (uint64_t i = 0; i != Count; ++i) {
       switch (AF.getValueSize()) {
-      default: llvm_unreachable("Invalid size!");
-      case 1: OS << char(AF.getValue()); break;
+      default:
+        llvm_unreachable("Invalid size!");
+      case 1:
+        OS << char(AF.getValue());
+        break;
       case 2:
         support::endian::write<uint16_t>(OS, AF.getValue(), Endian);
         break;
@@ -812,6 +815,266 @@ static void writeFragment(raw_ostream &OS, const MCAssembler &Asm,
          "The stream should advance by fragment size");
 }
 
+// 5c4lar
+std::string
+MCAssembler::getGtirb(std::vector<const MCSection *> &SectionTable) const {
+  gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::FunctionNames>();
+  gtirb::AuxDataContainer::registerAuxDataType<
+      gtirb::schema::FunctionEntries>();
+  gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::FunctionBlocks>();
+  gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::SectionIndex>();
+  gtirb::AuxDataContainer::registerAuxDataType<
+      gtirb::schema::SymbolicExpressionInfo>();
+  gtirb::Context Ctx;
+  auto *Ir = gtirb::IR::Create(Ctx);
+  auto *MAI = getContext().getAsmInfo();
+  auto &GtirbInfo = MAI->GtirbInfo;
+  auto &ModuleName = GtirbInfo.ModuleName;
+  auto *M = Ir->addModule(Ctx, ModuleName);
+  Ir->addModule(M);
+  gtirb::schema::FunctionNames::Type FunctionNames;
+  gtirb::schema::FunctionEntries::Type FunctionEntries;
+  gtirb::schema::FunctionBlocks::Type FunctionBlocks;
+  gtirb::schema::SectionIndex::Type SectionIndex;
+  gtirb::schema::SymbolicExpressionInfo::Type SymbolicExpressionInfo;
+  std::map<const MCSection *, gtirb::Section *> SectionMap;
+  std::map<const MCSymbol *, gtirb::Symbol *> SymbolMap;
+  //  for (auto &Section : SectionTable) {
+  //    auto *S = M->addSection(Ctx, Section->getName().str());
+  //    SectionMap[Section] = S;
+  //  }
+  auto SetSymbolReferent = [&](const MCSymbol *Symbol) {
+    gtirb::Symbol *GtirbSym = nullptr;
+    if (0 < SymbolMap.count(Symbol)) {
+      GtirbSym = SymbolMap[Symbol];
+      if (GtirbSym->hasReferent()) {
+        DEBUG_WITH_TYPE("gtirb", dbgs() << "Symbol " << Symbol->getName()
+                                        << " has referent\n";);
+        return GtirbSym;
+      }
+    }
+    if (!Symbol->isInSection()) {
+      if (nullptr == GtirbSym) {
+        GtirbSym = SymbolMap[Symbol] =
+            M->addSymbol(Ctx, Symbol->getName().str());
+      }
+      DEBUG_WITH_TYPE("gtirb", dbgs() << "Symbol " << Symbol->getName()
+                                      << " is not in a section\n";);
+      auto *ProxyBlock = M->addProxyBlock(Ctx);
+      GtirbSym->setReferent(ProxyBlock);
+      return GtirbSym;
+    }
+    auto &Section = Symbol->getSection();
+    auto *GtirbSection = SectionMap[&Section];
+    auto *Fragment = Symbol->getFragment();
+    uint64_t FragmentOffset = getFragmentOffset(*Fragment);
+    uint64_t SymbolOffset = Symbol->getOffset();
+    auto &BI = *GtirbSection->byte_intervals_begin();
+    auto Blocks = BI.findBlocksAtOffset(FragmentOffset + SymbolOffset);
+    if (!Blocks.empty() && !M->findSymbols(Blocks.front()).empty()) {
+      GtirbSym = SymbolMap[Symbol] = &M->findSymbols(Blocks.front()).front();
+    } else {
+      GtirbSym = SymbolMap[Symbol] = M->addSymbol(Ctx, Symbol->getName().str());
+    }
+
+    DEBUG_WITH_TYPE("gtirb", dbgs() << "Symbol " << Symbol->getName()
+                                    << " has no referent\n";);
+    if (!Blocks.empty()) {
+      auto &Block = Blocks.front();
+      if (gtirb::isa<gtirb::DataBlock>(&Block)) {
+        GtirbSym->setReferent(gtirb::dyn_cast<gtirb::DataBlock>(&Block));
+      } else if (gtirb::isa<gtirb::CodeBlock>(&Block)) {
+        GtirbSym->setReferent(gtirb::dyn_cast<gtirb::CodeBlock>(&Block));
+      }
+    } else {
+      auto *GtirbDataBlock = gtirb::DataBlock::Create(Ctx);
+      BI.addBlock(FragmentOffset + SymbolOffset, GtirbDataBlock);
+      GtirbSym->setReferent(GtirbDataBlock);
+    }
+    return GtirbSym;
+  };
+
+  // Add sections and Section ByteIntervals
+  for (uint64_t Idx = 0; Idx < SectionTable.size(); Idx++) {
+    auto *Section = SectionTable[Idx];
+    if (Section->getName().str() == ".gtirb") {
+      continue;
+    }
+    auto *S = M->addSection(Ctx, Section->getName().str());
+    SectionIndex[Idx + 1] = S->getUUID();
+    SectionMap[Section] = S;
+    auto SectionSize = getSectionAddressSize(*Section);
+    S->addByteInterval(Ctx, SectionSize, 0);
+  }
+  // Add Functions
+  for (auto &Function : GtirbInfo.Functions) {
+    gtirb::Symbol *FunctionNameSymbol;
+    if (SymbolMap.count(Function.Sym)) {
+      FunctionNameSymbol = SymbolMap[Function.Sym];
+    } else {
+      FunctionNameSymbol = SymbolMap[Function.Sym] =
+          M->addSymbol(Ctx, Function.Sym->getName().str());
+    }
+    auto *S = SectionMap[&Function.Sym->getSection()];
+    auto &BI = *S->byte_intervals_begin();
+    auto *FunctionNode = gtirb::Node::Create(Ctx);
+    auto FunctionUUID = FunctionNode->getUUID();
+    gtirb::schema::FunctionBlocks::Type::mapped_type BlocksUUID;
+    gtirb::schema::FunctionEntries::Type::mapped_type EntryBlocksUUID;
+    for (auto &Block : Function.BasicBlocks) {
+      auto BBBeginOffset = getSymbolOffset(*Block.Begin);
+      auto BBEndOffset = getSymbolOffset(*Block.End);
+      auto *GtirbCodeBlock =
+          gtirb::CodeBlock::Create(Ctx, BBEndOffset - BBBeginOffset);
+      BI.addBlock(BBBeginOffset, GtirbCodeBlock);
+      BlocksUUID.emplace(GtirbCodeBlock->getUUID());
+      if (Block.IsEntry) {
+        EntryBlocksUUID.emplace(GtirbCodeBlock->getUUID());
+        FunctionNameSymbol->setReferent(GtirbCodeBlock);
+      }
+    }
+    FunctionNames.emplace(FunctionUUID, FunctionNameSymbol->getUUID());
+    FunctionBlocks.emplace(FunctionUUID, BlocksUUID);
+    FunctionEntries.emplace(FunctionUUID, EntryBlocksUUID);
+  }
+  // Add Variables
+  for (auto &Var : GtirbInfo.Variables) {
+    if (!Var.Sym->isDefined())
+      continue;
+    auto VarOffset = getSymbolOffset(*Var.Sym);
+    auto *GtirbDataBlock = gtirb::DataBlock::Create(Ctx, Var.Size);
+
+    auto *S = SectionMap[&Var.Sym->getSection()];
+    auto &BI = *S->byte_intervals_begin();
+    BI.addBlock(VarOffset, GtirbDataBlock);
+    gtirb::Symbol *GtirbSym;
+    if (SymbolMap.count(Var.Sym)) {
+      GtirbSym = SymbolMap[Var.Sym];
+    } else {
+      GtirbSym = SymbolMap[Var.Sym] =
+          M->addSymbol(Ctx, GtirbDataBlock, Var.Sym->getName().str());
+    }
+    // Need to be handled more carefully.
+    GtirbSym->setReferent(GtirbDataBlock);
+  }
+  // Handle Fragments and Fixups
+  for (uint64_t Idx = 0; Idx < SectionTable.size(); Idx++) {
+    auto *Section = SectionTable[Idx];
+    if (Section->getName().str() == ".gtirb") {
+      continue;
+    }
+    auto *S = SectionMap[Section];
+    auto *BI = &*S->byte_intervals_begin();
+    ArrayRef<MCFixup> Fixups;
+
+    for (auto &Fragment : *Section) {
+      switch (Fragment.getKind()) {
+      default:
+        continue;
+      case MCFragment::FT_Data: {
+        auto &DF = cast<MCDataFragment>(Fragment);
+        Fixups = DF.getFixups();
+        break;
+      }
+      case MCFragment::FT_Relaxable: {
+        auto &RF = cast<MCRelaxableFragment>(Fragment);
+        Fixups = RF.getFixups();
+        break;
+      }
+      case MCFragment::FT_CVDefRange: {
+        auto &CF = cast<MCCVDefRangeFragment>(Fragment);
+        Fixups = CF.getFixups();
+        break;
+      }
+      case MCFragment::FT_Dwarf: {
+        auto &DF = cast<MCDwarfLineAddrFragment>(Fragment);
+        Fixups = DF.getFixups();
+        break;
+      }
+      case MCFragment::FT_DwarfFrame: {
+        auto &DF = cast<MCDwarfCallFrameFragment>(Fragment);
+        Fixups = DF.getFixups();
+        break;
+      }
+      case MCFragment::FT_LEB: {
+        auto &LF = cast<MCLEBFragment>(Fragment);
+        Fixups = LF.getFixups();
+        break;
+      }
+      case MCFragment::FT_PseudoProbe: {
+        auto &PF = cast<MCPseudoProbeAddrFragment>(Fragment);
+        Fixups = PF.getFixups();
+        break;
+      }
+      }
+      uint64_t FragmentOffset = getFragmentOffset(Fragment);
+      // const auto *Atom = Fragment.getAtom();
+      for (auto &Fixup : Fixups) {
+        auto FixupOffset = Fixup.getOffset();
+        auto *FixupValue = Fixup.getValue();
+        MCValue Res;
+        FixupValue->evaluateAsValue(Res, *this);
+        auto *SymA = Res.getSymA();
+        auto *SymB = Res.getSymB();
+        auto Constant = Res.getConstant();
+        auto Variant = Res.getAccessVariant();
+        gtirb::SymAttributeSet Attrs;
+        gtirb::Symbol *GtirbSymA;
+        gtirb::Symbol *GtirbSymB;
+        gtirb::SymbolicExpression *GtirbSymExpr = nullptr;
+        if (SymA) {
+          GtirbSymA = SetSymbolReferent(&SymA->getSymbol());
+        }
+        if (SymB) {
+          GtirbSymB = SetSymbolReferent(&SymB->getSymbol());
+        }
+        auto SymExprOffset = FragmentOffset + FixupOffset;
+        auto FixupKindInfo = getBackendPtr()->getFixupKindInfo(Fixup.getKind());
+        if (SymA && SymB) {
+          GtirbSymExpr = &BI->addSymbolicExpression(
+              SymExprOffset,
+              gtirb::SymAddrAddr{1, Constant, GtirbSymA, GtirbSymB, Attrs});
+        } else if (SymA) {
+          GtirbSymExpr = &BI->addSymbolicExpression(
+              SymExprOffset, gtirb::SymAddrConst{Constant, GtirbSymA, Attrs});
+        } else {
+          continue;
+        }
+        if (GtirbSymExpr) {
+          SymbolicExpressionInfo[std::make_tuple(BI->getUUID(),
+                                                 SymExprOffset)] =
+              std::make_tuple(std::string(FixupKindInfo.Name),
+                              FixupKindInfo.TargetOffset,
+                              FixupKindInfo.TargetSize, FixupKindInfo.Flags,
+                              static_cast<uint16_t>(Variant));
+          DEBUG_WITH_TYPE("gtirb", dbgs() << Section->getName() << "["
+                                          << FixupOffset + FragmentOffset << "]"
+                                          << "\n";
+                          FixupValue->print(dbgs(), MAI); dbgs() << "\n";);
+        }
+      }
+    }
+  }
+  // Add Symbols
+  for (auto &[Symbol, GtirbSym] : SymbolMap) {
+    SetSymbolReferent(Symbol);
+  }
+  M->addAuxData<gtirb::schema::FunctionNames>(std::move(FunctionNames));
+  M->addAuxData<gtirb::schema::FunctionBlocks>(std::move(FunctionBlocks));
+  M->addAuxData<gtirb::schema::FunctionEntries>(std::move(FunctionEntries));
+  M->addAuxData<gtirb::schema::SectionIndex>(std::move(SectionIndex));
+  M->addAuxData<gtirb::schema::SymbolicExpressionInfo>(
+      std::move(SymbolicExpressionInfo));
+  DEBUG_WITH_TYPE("gtirb", dbgs() << "Recording: "
+                                  << SymbolicExpressionInfo.size() << "\n";);
+  std::ostringstream GtirbStream;
+  Ir->save(GtirbStream);
+  std::string GtirbContent = GtirbStream.str();
+  DEBUG_WITH_TYPE("gtirb", dbgs() << "Writing GTIRB\n Length: "
+                                  << GtirbContent.length() << "\n";);
+  return GtirbContent;
+}
+
 void MCAssembler::writeSectionData(raw_ostream &OS,
                                    const MCSection *Sec) const {
   assert(getBackendPtr() && "Expected assembler backend");
@@ -823,7 +1086,8 @@ void MCAssembler::writeSectionData(raw_ostream &OS,
     // Check that contents are only things legal inside a virtual section.
     for (const MCFragment &F : *Sec) {
       switch (F.getKind()) {
-      default: llvm_unreachable("Invalid fragment in virtual section!");
+      default:
+        llvm_unreachable("Invalid fragment in virtual section!");
       case MCFragment::FT_Data: {
         // Check that we aren't trying to write a non-zero contents (or fixups)
         // into a virtual section. This is to support clients which use standard
@@ -893,8 +1157,9 @@ MCAssembler::handleFixup(MCFragment &F, const MCFixup &Fixup,
 void MCAssembler::layout() {
   assert(getBackendPtr() && "Expected assembler backend");
   DEBUG_WITH_TYPE("mc-dump", {
-      errs() << "assembler backend - pre-layout\n--\n";
-      dump(); });
+    errs() << "assembler backend - pre-layout\n--\n";
+    dump();
+  });
 
   // Assign section ordinals.
   unsigned SectionIndex = 0;
@@ -933,15 +1198,17 @@ void MCAssembler::layout() {
   }
 
   DEBUG_WITH_TYPE("mc-dump", {
-      errs() << "assembler backend - post-relaxation\n--\n";
-      dump(); });
+    errs() << "assembler backend - post-relaxation\n--\n";
+    dump();
+  });
 
   // Finalize the layout, including fragment lowering.
   getBackend().finishLayout(*this);
 
   DEBUG_WITH_TYPE("mc-dump", {
-      errs() << "assembler backend - final-layout\n--\n";
-      dump(); });
+    errs() << "assembler backend - final-layout\n--\n";
+    dump();
+  });
 
   // Allow the object writer a chance to perform post-layout binding (for
   // example, to set the index fields in the symbol data).
@@ -1262,7 +1529,7 @@ bool MCAssembler::relaxPseudoProbeAddr(MCPseudoProbeAddrFragment &PF) {
 }
 
 bool MCAssembler::relaxFragment(MCFragment &F) {
-  switch(F.getKind()) {
+  switch (F.getKind()) {
   default:
     return false;
   case MCFragment::FT_Relaxable:
@@ -1298,7 +1565,7 @@ bool MCAssembler::layoutOnce() {
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-LLVM_DUMP_METHOD void MCAssembler::dump() const{
+LLVM_DUMP_METHOD void MCAssembler::dump() const {
   raw_ostream &OS = errs();
 
   OS << "<MCAssembler\n";

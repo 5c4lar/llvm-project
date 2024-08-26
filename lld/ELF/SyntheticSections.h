@@ -36,6 +36,10 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Parallel.h"
 #include "llvm/Support/Threading.h"
+// 5c4lar
+#include "llvm/MC/AuxDataSchema.h"
+#include <gtirb/gtirb.hpp>
+#include <map>
 
 namespace lld::elf {
 class Defined;
@@ -364,7 +368,7 @@ private:
   // Try to merge two GOTs. In case of success the `Dst` contains
   // result of merging and the function returns true. In case of
   // overflow the `Dst` is unchanged and the function returns false.
-  bool tryMergeGots(FileGot & dst, FileGot & src, bool isPrimary);
+  bool tryMergeGots(FileGot &dst, FileGot &src, bool isPrimary);
 };
 
 class GotPltSection final : public SyntheticSection {
@@ -1064,8 +1068,7 @@ public:
 // Elf_Verneed specifies the version requirements for a single DSO, and contains
 // a reference to a linked list of Elf_Vernaux data structures which define the
 // mapping from version identifiers to version names.
-template <class ELFT>
-class VersionNeedSection final : public SyntheticSection {
+template <class ELFT> class VersionNeedSection final : public SyntheticSection {
   using Elf_Verneed = typename ELFT::Verneed;
   using Elf_Vernaux = typename ELFT::Vernaux;
 
@@ -1443,15 +1446,40 @@ public:
   size_t getSize() const override;
   bool updateAllocSize(Ctx &) override;
 
-  void addSymbol(const Symbol &sym) {
-    symbols.push_back(&sym);
-  }
+  void addSymbol(const Symbol &sym) { symbols.push_back(&sym); }
 
   bool isNeeded() const override { return !symbols.empty(); }
 
 private:
   SmallVector<const Symbol *, 0> symbols;
 };
+
+// 5c4lar
+class GtirbSection final : public SyntheticSection {
+public:
+  SmallVector<gtirb::IR *, 0> gtirbIrs;
+  std::map<InputSectionBase *, gtirb::Section *> sectionMap;
+  std::set<InputSection *> mergeSyntheticSections;
+  gtirb::Context gtirbCtx;
+  gtirb::IR *ir;
+  std::ostringstream gtirbStream;
+  GtirbSection(Ctx &ctx)
+      : SyntheticSection(ctx, ".gtirb", llvm::ELF::SHT_PROGBITS, 0, 1) {
+    gtirb::AuxDataContainer::registerAuxDataType<
+        gtirb::schema::FunctionNames>();
+    gtirb::AuxDataContainer::registerAuxDataType<
+        gtirb::schema::FunctionEntries>();
+    gtirb::AuxDataContainer::registerAuxDataType<
+        gtirb::schema::FunctionBlocks>();
+    gtirb::AuxDataContainer::registerAuxDataType<gtirb::schema::SectionIndex>();
+    gtirb::AuxDataContainer::registerAuxDataType<
+        gtirb::schema::SymbolicExpressionInfo>();
+  }
+  void writeTo(uint8_t *buf) override;
+  void finalizeContents() override;
+  size_t getSize() const override;
+};
+void combineGtirbSections(Ctx &);
 
 template <class ELFT> void createSyntheticSections(Ctx &);
 InputSection *createInterpSection(Ctx &);

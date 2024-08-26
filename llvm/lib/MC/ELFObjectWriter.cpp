@@ -173,9 +173,7 @@ public:
       W.write<uint32_t>(Word);
   }
 
-  template <typename T> void write(T Val) {
-    W.write(Val);
-  }
+  template <typename T> void write(T Val) { W.write(Val); }
 
   void writeHeader(const MCAssembler &Asm);
 
@@ -292,13 +290,14 @@ void ELFWriter::writeHeader(const MCAssembler &Asm) {
 
   W.OS << ELF::ElfMagic; // e_ident[EI_MAG0] to e_ident[EI_MAG3]
 
-  W.OS << char(is64Bit() ? ELF::ELFCLASS64 : ELF::ELFCLASS32); // e_ident[EI_CLASS]
+  W.OS << char(is64Bit() ? ELF::ELFCLASS64
+                         : ELF::ELFCLASS32); // e_ident[EI_CLASS]
 
   // e_ident[EI_DATA]
   W.OS << char(W.Endian == llvm::endianness::little ? ELF::ELFDATA2LSB
                                                     : ELF::ELFDATA2MSB);
 
-  W.OS << char(ELF::EV_CURRENT);        // e_ident[EI_VERSION]
+  W.OS << char(ELF::EV_CURRENT); // e_ident[EI_VERSION]
   // e_ident[EI_OSABI]
   uint8_t OSABI = OWriter.TargetObjectWriter->getOSABI();
   W.OS << char(OSABI == ELF::ELFOSABI_NONE && OWriter.seenGnuAbi()
@@ -311,9 +310,10 @@ void ELFWriter::writeHeader(const MCAssembler &Asm) {
 
   W.OS.write_zeros(ELF::EI_NIDENT - ELF::EI_PAD);
 
-  W.write<uint16_t>(ELF::ET_REL);             // e_type
+  W.write<uint16_t>(ELF::ET_REL); // e_type
 
-  W.write<uint16_t>(OWriter.TargetObjectWriter->getEMachine()); // e_machine = target
+  W.write<uint16_t>(
+      OWriter.TargetObjectWriter->getEMachine()); // e_machine = target
 
   W.write<uint32_t>(ELF::EV_CURRENT);         // e_version
   writeWord(0); // e_entry, no entry point in .o file
@@ -327,8 +327,8 @@ void ELFWriter::writeHeader(const MCAssembler &Asm) {
   W.write<uint16_t>(is64Bit() ? sizeof(ELF::Elf64_Ehdr)
                               : sizeof(ELF::Elf32_Ehdr));
 
-  W.write<uint16_t>(0);                  // e_phentsize = prog header entry size
-  W.write<uint16_t>(0);                  // e_phnum = # prog header entries = 0
+  W.write<uint16_t>(0); // e_phentsize = prog header entry size
+  W.write<uint16_t>(0); // e_phnum = # prog header entries = 0
 
   // e_shentsize = Section header entry size
   W.write<uint16_t>(is64Bit() ? sizeof(ELF::Elf64_Shdr)
@@ -397,7 +397,8 @@ static bool isIFunc(const MCSymbolELF *Symbol) {
     if (!Symbol->isVariable() ||
         !(Value = dyn_cast<MCSymbolRefExpr>(Symbol->getVariableValue())) ||
         Value->getKind() != MCSymbolRefExpr::VK_None ||
-        mergeTypeForSet(Symbol->getType(), ELF::STT_GNU_IFUNC) != ELF::STT_GNU_IFUNC)
+        mergeTypeForSet(Symbol->getType(), ELF::STT_GNU_IFUNC) !=
+            ELF::STT_GNU_IFUNC)
       return false;
     Symbol = &cast<MCSymbolELF>(Value->getSymbol());
   }
@@ -538,7 +539,8 @@ void ELFWriter::computeSymbolTable(MCAssembler &Asm,
       continue;
 
     if (Symbol.isTemporary() && Symbol.isUndefined()) {
-      Ctx.reportError(SMLoc(), "Undefined temporary symbol " + Symbol.getName());
+      Ctx.reportError(SMLoc(),
+                      "Undefined temporary symbol " + Symbol.getName());
       continue;
     }
 
@@ -819,7 +821,7 @@ static void encodeCrel(ArrayRef<ELFRelocationEntry> Relocs, raw_ostream &OS) {
 }
 
 void ELFWriter::writeRelocations(const MCAssembler &Asm,
-                                       const MCSectionELF &Sec) {
+                                 const MCSectionELF &Sec) {
   std::vector<ELFRelocationEntry> &Relocs = OWriter.Relocations[&Sec];
   const MCTargetOptions *TO = Asm.getContext().getTargetOptions();
   const bool Rela = OWriter.usesRela(TO, Sec);
@@ -894,7 +896,7 @@ void ELFWriter::writeSectionHeader(uint32_t GroupSymbolIndex, uint64_t Offset,
   uint64_t sh_link = 0;
   uint64_t sh_info = 0;
 
-  switch(Section.getType()) {
+  switch (Section.getType()) {
   default:
     // Nothing to do.
     break;
@@ -1092,6 +1094,19 @@ uint64_t ELFWriter::writeObject(MCAssembler &Asm) {
     Group->setOffsets(SecStart, SecEnd);
   }
 
+  {
+    // 5c4lar: write the gtirb to the .gtirb section
+    MCSectionELF *GtirbSection =
+        Ctx.getELFSection(".gtirb", ELF::SHT_PROGBITS, 0);
+    addToSectionTable(GtirbSection);
+    uint64_t SecStart = W.OS.tell();
+    std::vector<const MCSection *> MCSectionTable(SectionTable.begin(),
+                                                  SectionTable.end());
+    W.OS << Asm.getGtirb(MCSectionTable);
+    uint64_t SecEnd = W.OS.tell();
+    GtirbSection->setOffsets(SecStart, SecEnd);
+  }
+
   if (Mode == DwoOnly) {
     // dwo files don't have symbol tables or relocations, but they do have
     // string tables.
@@ -1272,7 +1287,7 @@ bool ELFObjectWriter::shouldRelocateWithSymbol(const MCAssembler &Asm,
   }
 
   unsigned Binding = Sym->getBinding();
-  switch(Binding) {
+  switch (Binding) {
   default:
     llvm_unreachable("Invalid Binding");
   case ELF::STB_LOCAL:

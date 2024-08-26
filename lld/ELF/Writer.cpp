@@ -1501,6 +1501,8 @@ template <class ELFT> void Writer<ELFT>::finalizeAddressDependentContent() {
   AArch64Err843419Patcher a64p(ctx);
   ARMErr657417Patcher a32p(ctx);
   ctx.script->assignAddresses();
+  // 5c4lar
+  finalizeSynthetic(ctx, ctx.in.gtirb.get());
 
   // .ARM.exidx and SHF_LINK_ORDER do not require precise addresses, but they
   // do require the relative addresses of OutputSections because linker scripts

@@ -1839,7 +1839,7 @@ static void readConfigs(Ctx &ctx, opt::InputArgList &args) {
         getPackDynRelocs(ctx, args);
   }
 
-  if (auto *arg = args.getLastArg(OPT_symbol_ordering_file)){
+  if (auto *arg = args.getLastArg(OPT_symbol_ordering_file)) {
     if (args.hasArg(OPT_call_graph_ordering_file))
       ErrAlways(ctx) << "--symbol-ordering-file and --call-graph-order-file "
                         "may not be used together";
@@ -3196,6 +3196,9 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
           continue;
         if (LLVM_UNLIKELY(isa<EhInputSection>(s)))
           ctx.ehInputSections.push_back(cast<EhInputSection>(s));
+        // 5c4lar
+        else if (LLVM_UNLIKELY(isa<GtirbInputSection>(s)))
+          ctx.gtirbInputSections.push_back(cast<GtirbInputSection>(s));
         else
           ctx.inputSections.push_back(s);
       }
@@ -3327,6 +3330,11 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
   if (ctx.arg.icf != ICFLevel::None) {
     findKeepUniqueSections<ELFT>(ctx, args);
     doIcf<ELFT>(ctx);
+  }
+
+  // 5c4lar
+  if (!ctx.gtirbInputSections.empty()) {
+    combineGtirbSections(ctx);
   }
 
   // Read the callgraph now that we know what was gced or icfed

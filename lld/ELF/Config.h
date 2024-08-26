@@ -43,6 +43,7 @@ class ELFFileBase;
 class SharedFile;
 class InputSectionBase;
 class EhInputSection;
+class GtirbInputSection;
 class Defined;
 class Undefined;
 class Symbol;
@@ -74,6 +75,7 @@ class StringTableSection;
 class SymbolTableBaseSection;
 class SymtabShndxSection;
 class SyntheticSection;
+class GtirbSection;
 
 enum ELFKind : uint8_t {
   ELFNoneKind,
@@ -563,6 +565,10 @@ struct InStruct {
   std::unique_ptr<StringTableSection> strTab;
   std::unique_ptr<SymbolTableBaseSection> symTab;
   std::unique_ptr<SymtabShndxSection> symTabShndx;
+  // 5c4lar
+  std::unique_ptr<GtirbSection> gtirb;
+
+  void reset();
 };
 
 struct Ctx : CommonLinkerContext {
@@ -639,7 +645,8 @@ struct Ctx : CommonLinkerContext {
   SmallVector<BitcodeFile *, 0> lazyBitcodeFiles;
   SmallVector<InputSectionBase *, 0> inputSections;
   SmallVector<EhInputSection *, 0> ehInputSections;
-
+  // 5c4lar
+  SmallVector<GtirbInputSection *, 0> gtirbInputSections;
   SmallVector<SymbolAux, 0> symAux;
   // Duplicate symbol candidates.
   SmallVector<DuplicateSymbol, 0> duplicates;
