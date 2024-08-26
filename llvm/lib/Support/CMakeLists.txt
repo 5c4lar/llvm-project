@@ -37,6 +37,12 @@ if(LLVM_ENABLE_ZSTD)
   list(APPEND imported_libs ${zstd_target})
 endif()
 
+if(LLVM_ENABLE_GTIRB)
+  find_package(gtirb REQUIRED CONFIG)
+  find_package(protobuf REQUIRED CONFIG)
+  list(APPEND imported_libs gtirb gtirb_proto protobuf::libprotobuf)
+endif()
+
 if( WIN32 )
   # libuuid required for FOLDERID_Profile usage in lib/Support/Windows/Path.inc.
   # advapi32 required for CryptAcquireContextW in lib/Support/Windows/Path.inc.
