@@ -117,7 +117,8 @@ void Ctx::reset() {
   lazyBitcodeFiles.clear();
   inputSections.clear();
   ehInputSections.clear();
-
+  // 5c4lar
+  gtirbInputSections.clear();
   symAux.clear();
   duplicates.clear();
   nonPrevailingSyms.clear();
@@ -249,8 +250,8 @@ std::vector<std::pair<MemoryBufferRef, uint64_t>> static getArchiveMembers(
     v.push_back(std::make_pair(mbref, c.getChildOffset()));
   }
   if (err)
-    fatal(mb.getBufferIdentifier() + ": Archive::children failed: " +
-          toString(std::move(err)));
+    fatal(mb.getBufferIdentifier() +
+          ": Archive::children failed: " + toString(std::move(err)));
 
   // Take ownership of memory buffers created for members of thin archives.
   std::vector<std::unique_ptr<MemoryBuffer>> mbs = file->takeThinBuffers();
@@ -1753,7 +1754,7 @@ static void readConfigs(Ctx &ctx, opt::InputArgList &args) {
         getPackDynRelocs(args);
   }
 
-  if (auto *arg = args.getLastArg(OPT_symbol_ordering_file)){
+  if (auto *arg = args.getLastArg(OPT_symbol_ordering_file)) {
     if (args.hasArg(OPT_call_graph_ordering_file))
       error("--symbol-ordering-file and --call-graph-order-file "
             "may not be used together");
@@ -3067,6 +3068,9 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
           continue;
         if (LLVM_UNLIKELY(isa<EhInputSection>(s)))
           ctx.ehInputSections.push_back(cast<EhInputSection>(s));
+        // 5c4lar
+        else if (LLVM_UNLIKELY(isa<GtirbInputSection>(s)))
+          ctx.gtirbInputSections.push_back(cast<GtirbInputSection>(s));
         else
           ctx.inputSections.push_back(s);
       }
@@ -3139,10 +3143,12 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
   if (!ctx.arg.relocatable)
     ctx.inputSections.push_back(createCommentSection());
 
-  // Split SHF_MERGE and .eh_frame sections into pieces in preparation for garbage collection.
+  // Split SHF_MERGE and .eh_frame sections into pieces in preparation for
+  // garbage collection.
   splitSections<ELFT>();
 
-  // Garbage collection and removal of shared symbols from unused shared objects.
+  // Garbage collection and removal of shared symbols from unused shared
+  // objects.
   markLive<ELFT>();
 
   // Make copies of any input sections that need to be copied into each
@@ -3198,6 +3204,11 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
   if (ctx.arg.icf != ICFLevel::None) {
     findKeepUniqueSections<ELFT>(ctx, args);
     doIcf<ELFT>();
+  }
+
+  // 5c4lar
+  if (!ctx.gtirbInputSections.empty()) {
+    combineGtirbSections();
   }
 
   // Read the callgraph now that we know what was gced or icfed

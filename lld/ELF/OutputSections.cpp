@@ -245,8 +245,10 @@ void OutputSection::finalizeInputSections(LinkerScript *script) {
     for (InputSection *s : isd->sections)
       commitSection(s);
   }
-  for (auto *ms : mergeSections)
+  for (auto *ms : mergeSections) {
     ms->finalizeContents();
+    ctx.in.gtirb->mergeSyntheticSections.insert(ms);
+  }
 }
 
 static void sortByOrder(MutableArrayRef<InputSection *> in,

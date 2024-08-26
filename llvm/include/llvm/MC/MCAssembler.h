@@ -166,6 +166,9 @@ public:
   // If this symbol is equivalent to A + Constant, return A.
   const MCSymbol *getBaseSymbol(const MCSymbol &Symbol) const;
 
+  // 5c4lar
+  std::string getGtirb(std::vector<const MCSection *> &SectionTable) const;
+
   /// Emit the section contents to \p OS.
   void writeSectionData(raw_ostream &OS, const MCSection *Section) const;
 

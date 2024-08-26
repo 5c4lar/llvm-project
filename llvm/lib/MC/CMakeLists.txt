@@ -1,3 +1,9 @@
+if(LLVM_ENABLE_GTIRB)
+  find_package(gtirb REQUIRED CONFIG)
+  find_package(Protobuf REQUIRED CONFIG)
+  set(imported_libs gtirb gtirb_proto protobuf::libprotobuf)
+endif()
+
 add_llvm_component_library(LLVMMC
   ConstantPools.cpp
   DXContainerPSVInfo.cpp

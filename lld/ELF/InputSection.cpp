@@ -187,6 +187,9 @@ RelsOrRelas<ELFT> InputSectionBase::relsOrRelas(bool supportsCrel) const {
 
 uint64_t SectionBase::getOffset(uint64_t offset) const {
   switch (kind()) {
+  // 5c4lar
+  case Gtirb:
+    return 0;
   case Output: {
     auto *os = cast<OutputSection>(this);
     // For output sections we treat offset -1 as the end of the section.
